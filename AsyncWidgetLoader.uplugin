@@ -1,0 +1,23 @@
+﻿{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "AsyncWidgetLoader",
+	"Description": "A plugin that allows for simple asynchronous loading of UI widgets.",
+	"Category": "Other",
+	"CreatedBy": "Mike Desrosiers",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "AsyncWidgetLoader",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}
