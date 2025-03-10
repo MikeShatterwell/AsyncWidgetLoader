@@ -26,6 +26,12 @@ public class AsyncWidgetLoader : ModuleRules
 			new string[]
 			{
 				"Core",
+				"CoreUObject",
+				"Engine",
+				"UMG",
+				"InputCore",
+				"Slate",
+				"SlateCore"
 				// ... add other public dependencies that you statically link with here ...
 			}
 			);
@@ -34,10 +40,8 @@ public class AsyncWidgetLoader : ModuleRules
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{
-				"CoreUObject",
-				"Engine",
-				"Slate",
-				"SlateCore",
+				"DeveloperSettings",
+				"Projects"
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);
