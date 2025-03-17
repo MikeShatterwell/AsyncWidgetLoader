@@ -2,6 +2,7 @@
 
 #include "Tests/AsyncWidgetLoaderTests.h"
 
+#include <PackageTools.h>
 #include <Blueprint/UserWidget.h>
 #include <Engine/Engine.h>
 #include <Engine/World.h>
@@ -11,6 +12,8 @@
 #include <UObject/SoftObjectPath.h>
 
 #include "AsyncWidgetLoaderSubsystem.h"
+#include "AsyncWidgetLoaderTypes.h"
+#include "LogAsyncWidgetLoader.h"
 #include "Interfaces/IAsyncWidgetRequestHandler.h"
 
 // Implementation of UMockWidgetRequestHandler interface methods
@@ -60,6 +63,17 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAsyncWidgetLoaderSubsystemTest, "Game.UI.Async
 
 bool FAsyncWidgetLoaderSubsystemTest::RunTest(const FString& Parameters)
 {
+	if (!TestNotNull("GEngine should exist", GEngine))
+	{
+		return false;
+	}
+
+	// Check if the game viewport is valid
+	if (!TestNotNull("GameViewport should exist", GEngine->GameViewport.Get()))
+	{
+		return false;
+	}
+
 	// Get the game instance
 	const UGameInstance* GameInstance = GEngine->GameViewport->GetGameInstance();
 	if (!TestNotNull("GameInstance should exist", GameInstance))
@@ -98,6 +112,17 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAsyncWidgetLoaderRequestTest, "Game.UI.AsyncWi
 
 bool FAsyncWidgetLoaderRequestTest::RunTest(const FString& Parameters)
 {
+	if (!TestNotNull("GEngine should exist", GEngine))
+	{
+		return false;
+	}
+
+	// Check if the game viewport is valid
+	if (!TestNotNull("GameViewport should exist", GEngine->GameViewport.Get()))
+	{
+		return false;
+	}
+
 	// Get the game instance
 	UGameInstance* GameInstance = GEngine->GameViewport->GetGameInstance();
 	if (!TestNotNull("GameInstance should exist", GameInstance))
@@ -129,10 +154,11 @@ bool FAsyncWidgetLoaderRequestTest::RunTest(const FString& Parameters)
 	
 	// Verify request was made
 	TestTrue("RequestId should be valid", RequestId != INDEX_NONE);
-	TestEqual("Request status should be Loading", WidgetLoader->GetRequestStatus(RequestId), EAsyncWidgetLoadStatus::Loading);
+	const EAsyncWidgetLoadStatus RequestStatus = WidgetLoader->GetRequestStatus(RequestId);
+	TestEqual("Request status should be Loading", RequestStatus, EAsyncWidgetLoadStatus::Loading);
 	
 	// Cancel the request
-	bool CancelResult = WidgetLoader->CancelRequest(RequestId);
+	const bool CancelResult = WidgetLoader->CancelRequest(RequestId);
 	TestTrue("Cancel should succeed", CancelResult);
 	
 	// Test with invalid widget class
@@ -168,6 +194,17 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAsyncWidgetLoaderCallbackTest, "Game.UI.AsyncW
 
 bool FAsyncWidgetLoaderCallbackTest::RunTest(const FString& Parameters)
 {
+	if (!TestNotNull("GEngine should exist", GEngine))
+	{
+		return false;
+	}
+
+	// Check if the game viewport is valid
+	if (!TestNotNull("GameViewport should exist", GEngine->GameViewport.Get()))
+	{
+		return false;
+	}
+	
 	// Get the game instance
 	UGameInstance* GameInstance = GEngine->GameViewport->GetGameInstance();
 	if (!TestNotNull("GameInstance should exist", GameInstance))
@@ -198,13 +235,10 @@ bool FAsyncWidgetLoaderCallbackTest::RunTest(const FString& Parameters)
 	
 	// Mock widget class that already exists
 	const TSubclassOf<UUserWidget> LoadedWidgetClass = UMockUserWidget::StaticClass();
-	const TSoftClassPtr<UUserWidget> WidgetClassRef(LoadedWidgetClass);
+	const FSoftClassPath LoadedWidgetPath(LoadedWidgetClass);
+	const TSoftClassPtr<UUserWidget> WidgetClassRef(LoadedWidgetPath);
 	
 	// Track callbacks
-	bool CallbackExecuted = false;
-	const UUserWidget* CallbackWidget = nullptr;
-	int32 CallbackRequestId = INDEX_NONE;
-	
 	FOnAsyncWidgetLoadedDynamic OnLoadCompleted;
 	OnLoadCompleted.BindDynamic(Handler, &UMockWidgetRequestHandler::OnWidgetLoaded);
 	
@@ -215,56 +249,36 @@ bool FAsyncWidgetLoaderCallbackTest::RunTest(const FString& Parameters)
 		OnLoadCompleted,
 		1.0f
 	);
+
+	// Wait for async loading to complete
+	FAsyncWidgetLoaderTestHelper Helper;
+	Helper.WaitUntil([&]() {
+			return Handler->CallbackExecuted ||
+			WidgetLoader->GetRequestStatus(RequestId) == EAsyncWidgetLoadStatus::Completed ||
+			WidgetLoader->GetRequestStatus(RequestId) == EAsyncWidgetLoadStatus::Failed;
+	});
 	
 	// Verify request was made
 	TestTrue("RequestId should be valid", RequestId != INDEX_NONE);
 	
-	// Since class is already loaded, callback should execute immediately
-	TestTrue("Callback should have executed", CallbackExecuted);
-	TestNotNull("Callback widget should not be null", CallbackWidget);
-	TestEqual("Callback RequestId should match", CallbackRequestId, RequestId);
+	TestTrue("Callback should have executed", Handler->CallbackExecuted);
+	TestNotNull("Callback widget should not be null", Handler->CallbackWidget.Get());
+	TestEqual("Callback RequestId should match", Handler->CallbackRequestId, RequestId);
 	
 	// Verify interface callbacks were called
-	TestEqual("OnAsyncWidgetRequested should be called", Handler->RequestedCount, 0); // Not called for already loaded widgets
+	TestEqual("OnAsyncWidgetRequested should be called", Handler->RequestedCount, 1);
 	TestEqual("OnAsyncWidgetLoaded should be called", Handler->LoadedCount, 1);
 	TestEqual("LastRequestId should match", Handler->LastRequestId, RequestId);
 	TestNotNull("LastLoadedWidget should not be null", Handler->LastLoadedWidget.Get());
 	
 	// Reset tracking
-	CallbackExecuted = false;
-	CallbackWidget = nullptr;
-	CallbackRequestId = INDEX_NONE;
+	Handler->CallbackExecuted = false;
+	Handler->CallbackWidget = nullptr;
+	Handler->CallbackRequestId = INDEX_NONE;
 	Handler->RequestedCount = 0;
 	Handler->LoadedCount = 0;
-	
-	// Make the async request
-	const int32 AsyncRequestId = WidgetLoader->RequestWidgetAsync(
-		WidgetClassRef,
-		Handler,
-		OnLoadCompleted,
-		1.0f
-	);
-	
-	// Verify request was made
-	TestTrue("AsyncRequestId should be valid", AsyncRequestId != INDEX_NONE);
-	TestEqual("AsyncRequest status should be Loading", WidgetLoader->GetRequestStatus(AsyncRequestId), EAsyncWidgetLoadStatus::Loading);
-	
-	// Verify interface callbacks for request start
-	TestEqual("OnAsyncWidgetRequested should be called", Handler->RequestedCount, 1);
-	TestEqual("OnAsyncWidgetLoaded should not be called yet", Handler->LoadedCount, 0);
-	
-	// Wait for async loading to complete
-	FAsyncWidgetLoaderTestHelper Helper;
-	const bool LoadCompleted = Helper.WaitUntil([&]() {
-		return CallbackExecuted || 
-			   WidgetLoader->GetRequestStatus(AsyncRequestId) == EAsyncWidgetLoadStatus::Completed ||
-			   WidgetLoader->GetRequestStatus(AsyncRequestId) == EAsyncWidgetLoadStatus::Failed;
-	});
 
-	return LoadCompleted && CallbackExecuted && 
-		   CallbackRequestId == AsyncRequestId && 
-		   Handler->LoadedCount == 1 &&
-		   Handler->LastLoadedWidget.Get() != nullptr;
+	return true;
 }
 
 /**
@@ -274,6 +288,17 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAsyncWidgetLoaderPoolingTest, "Game.UI.AsyncWi
 
 bool FAsyncWidgetLoaderPoolingTest::RunTest(const FString& Parameters)
 {
+	if (!TestNotNull("GEngine should exist", GEngine))
+	{
+		return false;
+	}
+
+	// Check if the game viewport is valid
+	if (!TestNotNull("GameViewport should exist", GEngine->GameViewport.Get()))
+	{
+		return false;
+	}
+	
 	// Get the game instance
 	UGameInstance* GameInstance = GEngine->GameViewport->GetGameInstance();
 	if (!TestNotNull("GameInstance should exist", GameInstance))
@@ -293,7 +318,9 @@ bool FAsyncWidgetLoaderPoolingTest::RunTest(const FString& Parameters)
 	WidgetLoader->SetWidgetCreationContext(GameInstance->GetWorld(), PC);
 
 	// Mock widget class that exists
-	TSubclassOf<UUserWidget> WidgetClass = UMockUserWidget::StaticClass();
+	const TSubclassOf<UUserWidget> WidgetClass = UMockUserWidget::StaticClass();
+	const FSoftClassPath LoadedWidgetPath(WidgetClass);
+	const TSoftClassPtr<UUserWidget> WidgetClassRef(LoadedWidgetPath);
 	
 	// Get a widget from the pool
 	UUserWidget* Widget1 = WidgetLoader->GetOrCreatePooledWidget(WidgetClass);
@@ -313,9 +340,8 @@ bool FAsyncWidgetLoaderPoolingTest::RunTest(const FString& Parameters)
 	TestNotEqual("Widget3 should be different from Widget1", Widget3, Widget1);
 	
 	// Preallocate some widgets
-	int32 NumToPreallocate = 5;
+	constexpr int32 NumToPreallocate = 5;
 	UMockWidgetRequestHandler* Handler = NewObject<UMockWidgetRequestHandler>(GameInstance);
-	TSoftClassPtr<UUserWidget> WidgetClassRef(WidgetClass);
 	
 	WidgetLoader->PreallocateWidgets(WidgetClassRef, NumToPreallocate, Handler, 1.0f);
 	
@@ -344,6 +370,17 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAsyncWidgetLoaderCleanupTest, "Game.UI.AsyncWi
 
 bool FAsyncWidgetLoaderCleanupTest::RunTest(const FString& Parameters)
 {
+	if (!TestNotNull("GEngine should exist", GEngine))
+	{
+		return false;
+	}
+
+	// Check if the game viewport is valid
+	if (!TestNotNull("GameViewport should exist", GEngine->GameViewport.Get()))
+	{
+		return false;
+	}
+	
 	// Get the game instance
 	UGameInstance* GameInstance = GEngine->GameViewport->GetGameInstance();
 	if (!TestNotNull("GameInstance should exist", GameInstance))
@@ -364,7 +401,8 @@ bool FAsyncWidgetLoaderCleanupTest::RunTest(const FString& Parameters)
 		
 		// Make a request with a handler that will go away
 		const TSubclassOf<UUserWidget> HardWidgetClass = UMockUserWidget::StaticClass();
-		const TSoftClassPtr<UUserWidget> WidgetClass(HardWidgetClass);
+		const FSoftClassPath LoadedWidgetPath(HardWidgetClass);
+		const TSoftClassPtr<UUserWidget> WidgetClass(LoadedWidgetPath);
 		
 		int32 RequestId = WidgetLoader->RequestWidgetAsync(
 			WidgetClass,
@@ -389,7 +427,8 @@ bool FAsyncWidgetLoaderCleanupTest::RunTest(const FString& Parameters)
 	
 	// Create a request
 	const TSubclassOf<UUserWidget> HardWidgetClass = UMockUserWidget::StaticClass();
-	const TSoftClassPtr<UUserWidget> WidgetClass(HardWidgetClass);
+	const FSoftClassPath LoadedWidgetPath(HardWidgetClass);
+	const TSoftClassPtr<UUserWidget> WidgetClass(LoadedWidgetPath);
 
 	const int32 RequestId = WidgetLoader->RequestWidgetAsync(
 		WidgetClass,

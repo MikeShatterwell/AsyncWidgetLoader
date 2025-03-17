@@ -81,10 +81,10 @@ public:
 			FTSTicker::GetCoreTicker().Tick(0.01f);
 			FPlatformProcess::Sleep(0.01f);
 		}
-        
+
 		return false;
 	}
 
 private:
-	double TimeoutTime;
+	double TimeoutTime = 10.f;
 };

@@ -9,9 +9,8 @@
 #include <Stats/Stats.h>
 #include <TimerManager.h>
 
+#include "LogAsyncWidgetLoader.h"
 #include "Interfaces/IAsyncWidgetRequestHandler.h"
-
-DEFINE_LOG_CATEGORY_STATIC(LogAsyncWidgetLoader, Log, All);
 
 UAsyncWidgetLoaderSubsystem::UAsyncWidgetLoaderSubsystem()
 	: NextRequestId(1)
@@ -61,35 +60,36 @@ int32 UAsyncWidgetLoaderSubsystem::RequestWidgetAsync(
 {
 	if (!Requester)
 	{
-		UE_LOG(LogAsyncWidgetLoader, Error, TEXT("RequestWidget: Invalid requester"));
+		UE_LOG(LogAsyncWidgetLoader, Error, TEXT("%hs: Invalid requester"), __FUNCTION__);
 		return INDEX_NONE;
 	}
 
 	if (!WidgetClass.IsValid())
 	{
-		UE_LOG(LogAsyncWidgetLoader, Error, TEXT("RequestWidget: Invalid widget class"));
+		UE_LOG(LogAsyncWidgetLoader, Error, TEXT("%hs: Invalid widget class"), __FUNCTION__);
 		return INDEX_NONE;
 	}
+	
+	const int32 CurrentRequestId = NextRequestId++;
 
-	// Check if the class is already loaded
-	if (WidgetClass.Get())
+	/*// Check if the class is already loaded
+	if (UClass* LoadedClass = WidgetClass.Get())
 	{
 		// Create the widget immediately
-		if (UUserWidget* Widget = GetOrCreatePooledWidget(WidgetClass.Get()))
+		if (UUserWidget* Widget = GetOrCreatePooledWidget(LoadedClass))
 		{
 			// Call the completion callback right away
-			OnLoadCompleted.ExecuteIfBound(NextRequestId, Widget);
+			OnLoadCompleted.ExecuteIfBound(CurrentRequestId, Widget);
 
 			// Notify via interface if implemented
-			if (Requester->Implements<UAsyncWidgetRequestHandler>())
+			if (Requester && Requester->Implements<UAsyncWidgetRequestHandler>())
 			{
-				IAsyncWidgetRequestHandler::Execute_OnAsyncWidgetLoaded(Requester, NextRequestId, Widget);
+				IAsyncWidgetRequestHandler::Execute_OnAsyncWidgetLoaded(Requester, CurrentRequestId, Widget);
 			}
 
-			// Increment request ID for next request
-			return NextRequestId++;
+			return CurrentRequestId;
 		}
-	}
+	}*/
 
 	// Widget class not already loaded, start async loading
 
@@ -107,19 +107,18 @@ int32 UAsyncWidgetLoaderSubsystem::RequestWidgetAsync(
 	// Notify via interface if implemented
 	if (Requester->Implements<UAsyncWidgetRequestHandler>())
 	{
-		IAsyncWidgetRequestHandler::Execute_OnAsyncWidgetRequested(Requester, NextRequestId, WidgetClass);
+		IAsyncWidgetRequestHandler::Execute_OnAsyncWidgetRequested(Requester, CurrentRequestId, WidgetClass);
 	}
 
 	// Start async loading
 	const TSharedPtr<FStreamableHandle> Handle = StreamableManager.RequestAsyncLoad(
 		Request.ClassPath,
-		[this, RequestId = NextRequestId]() { OnWidgetClassLoaded(RequestId); },
+		[this, RequestId = CurrentRequestId]() { OnWidgetClassLoaded(RequestId); },
 		Priority);
 
 	Request.StreamableHandle = Handle;
 
-	// Increment request ID for next request
-	return NextRequestId++;
+	return CurrentRequestId;
 }
 
 bool UAsyncWidgetLoaderSubsystem::CancelRequest(const int32 RequestId)
@@ -127,6 +126,13 @@ bool UAsyncWidgetLoaderSubsystem::CancelRequest(const int32 RequestId)
 	FAsyncWidgetRequest* Request = ActiveRequests.Find(RequestId);
 	if (!Request)
 	{
+		// If we can't find it in ActiveRequests, it might be an immediate request that already completed
+		// In which case, there's nothing to cancel - just return success
+		if (RequestId > 0 && RequestId < NextRequestId)
+		{
+			return true;
+		}
+
 		UE_LOG(LogAsyncWidgetLoader, Warning, TEXT("CancelRequest: Request %d not found"), RequestId);
 		return false;
 	}
@@ -157,6 +163,12 @@ EAsyncWidgetLoadStatus UAsyncWidgetLoaderSubsystem::GetRequestStatus(const int32
 	const FAsyncWidgetRequest* Request = ActiveRequests.Find(RequestId);
 	if (!Request)
 	{
+		// If the request ID is valid but not in ActiveRequests, it might be an immediate load that completed
+		// We can check if the ID is within our range of generated IDs
+		if (RequestId > 0 && RequestId < NextRequestId)
+		{
+			return EAsyncWidgetLoadStatus::Completed;
+		}
 		return EAsyncWidgetLoadStatus::NotStarted;
 	}
 

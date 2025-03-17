@@ -32,7 +32,8 @@ public class AsyncWidgetLoader : ModuleRules
 				"InputCore",
 				"Slate",
 				"SlateCore",
-				"AutomationTest"
+				"AutomationTest",
+				"UnrealEd"
 				// ... add other public dependencies that you statically link with here ...
 			}
 			);
