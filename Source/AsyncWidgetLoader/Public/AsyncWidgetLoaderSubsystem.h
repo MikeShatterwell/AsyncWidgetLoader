@@ -101,6 +101,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Async Widget Loader")
 	EAsyncWidgetLoadStatus GetRequestStatus(int32 RequestId) const;
 
+	/** Remove completed or cancelled requests */
+	void CleanupRequests();
 protected:
 	/** StreamableManager for handling async loading */
 	FStreamableManager StreamableManager;
@@ -127,9 +129,7 @@ protected:
 	
 	/** Process when a widget class finishes loading */
 	void OnWidgetClassLoaded(int32 RequestId);
-
-	/** Remove completed or cancelled requests */
-	void CleanupRequests();
+	
 
 	UPROPERTY()
 	float CleanupInterval = 5.0f;

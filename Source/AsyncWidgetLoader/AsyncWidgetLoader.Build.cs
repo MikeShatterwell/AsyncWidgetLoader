@@ -31,7 +31,8 @@ public class AsyncWidgetLoader : ModuleRules
 				"UMG",
 				"InputCore",
 				"Slate",
-				"SlateCore"
+				"SlateCore",
+				"AutomationTest"
 				// ... add other public dependencies that you statically link with here ...
 			}
 			);
