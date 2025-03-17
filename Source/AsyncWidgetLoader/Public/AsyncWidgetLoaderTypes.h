@@ -7,8 +7,9 @@
 
 #include "Engine/StreamableManager.h"
 
+#include "AsyncWidgetLoaderTypes.generated.h"
+
 DECLARE_DYNAMIC_DELEGATE_TwoParams(FOnAsyncWidgetLoadedDynamic, int32, RequestId, UUserWidget*, LoadedWidget);
-DECLARE_DELEGATE_TwoParams(FOnAsyncWidgetLoaded, int32, UUserWidget*);
 
 // Status of an async widget load request
 UENUM(BlueprintType)
@@ -42,11 +43,8 @@ struct ASYNCWIDGETLOADER_API FAsyncWidgetRequest
 	/** Strong reference to the streamable handle */
 	TSharedPtr<FStreamableHandle> StreamableHandle;
 
-	/** Callback when loading completes */
-	FOnAsyncWidgetLoaded OnLoadCompleted;
-
 	/** Callback for blueprints when loading completes */
-	FOnAsyncWidgetLoadedDynamic OnLoadCompletedBP;
+	FOnAsyncWidgetLoadedDynamic OnLoadCompleted;
 
 	/** Optional placeholder widget shown during loading */
 	TWeakObjectPtr<UUserWidget> PlaceholderWidget;
@@ -59,12 +57,6 @@ struct ASYNCWIDGETLOADER_API FAsyncWidgetRequest
 
 	/** Current status of this request */
 	EAsyncWidgetLoadStatus Status = EAsyncWidgetLoadStatus::NotStarted;
-
-	/** Whether to add the loaded widget to the pool when created */
-	bool bAddToPool = true;
-
-	/** User context data passed through to callbacks */
-	int32 UserData = 0;
 
 	FAsyncWidgetRequest() = default;
 
@@ -89,31 +81,5 @@ struct ASYNCWIDGETLOADER_API FAsyncWidgetRequest
 		}
 		StreamableHandle.Reset();
 		Status = EAsyncWidgetLoadStatus::Cancelled;
-	}
-};
-
-/**
- * Tracks a widget that is scheduled for delayed release
- */
-USTRUCT()
-struct ASYNCWIDGETLOADER_API FDelayedWidgetRelease
-{
-	GENERATED_BODY()
-
-	/** The widget to release */
-	UPROPERTY()
-	TObjectPtr<UUserWidget> Widget = nullptr;
-
-	/** The class path for pool lookup */
-	FSoftObjectPath ClassPath;
-
-	/** When to release the widget */
-	double ReleaseTime = 0.0;
-
-	FDelayedWidgetRelease() = default;
-
-	FDelayedWidgetRelease(UUserWidget* InWidget, const FSoftObjectPath& InClassPath, double InReleaseTime)
-		: Widget(InWidget), ClassPath(InClassPath), ReleaseTime(InReleaseTime)
-	{
 	}
 };

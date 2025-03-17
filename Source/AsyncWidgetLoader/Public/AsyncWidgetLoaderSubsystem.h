@@ -4,18 +4,22 @@
 #include <Subsystems/GameInstanceSubsystem.h>
 #include <Engine/StreamableManager.h>
 #include <Blueprint/UserWidget.h>
+#include <Blueprint/UserWidgetPool.h>
 
 #include "AsyncWidgetLoaderTypes.h"
-#include "AsyncWidgetHandle.h"
 #include "AsyncWidgetLoaderSubsystem.generated.h"
 
-struct FUserWidgetPool;
-class UAsyncWidgetHandle;
 
 /**
- * A subsystem that manages asynchronous loading of widgets
+ * A subsystem that manages asynchronous loading of widgets and pooling
+ * 
+ * Key features:
+ * - Asynchronously load widget classes
+ * - Widget pooling to avoid constant recreation
+ * - Placeholder widgets during loading
+ * - Handles for easy lifetime management
  */
-UCLASS(BlueprintType)
+UCLASS(BlueprintType, DisplayName = "Async Widget Loader")
 class ASYNCWIDGETLOADER_API UAsyncWidgetLoaderSubsystem : public UGameInstanceSubsystem
 {
 	GENERATED_BODY()
@@ -28,64 +32,60 @@ public:
 	virtual void Deinitialize() override;
 	virtual bool ShouldCreateSubsystem(UObject* Outer) const override;
 	//~ End USubsystem Interface
-
+	
 	/**
-	 * Request a widget asynchronously
-	 * @param WidgetClass The soft class reference to load
-	 * @param Requester The object requesting the widget
-	 * @param OnLoadCompleted Delegate called when loading completes
+	 * Load a widget class asynchronously and create an instance
+	 * 
+	 * @param WidgetClass The widget class to load
+	 * @param Requester The object requesting the widget, will receive callbacks
+	 * @param OnLoadCompleted Callback when loading completes
 	 * @param Priority Loading priority (higher values are loaded first)
-	 * @param UserData Additional context data for the request
-	 * @param bAddToPool Whether to add the widget to the pool
-	 * @return Request ID for tracking or cancellation
+	 * @return Request ID that can be used to cancel or track the request
 	 */
-	int32 RequestWidget(
+	UFUNCTION(BlueprintCallable, Category = "Async Widget Loader")
+	int32 RequestWidgetAsync(
 		const TSoftClassPtr<UUserWidget>& WidgetClass,
 		UObject* Requester,
-		const FOnAsyncWidgetLoaded& OnLoadCompleted,
-		float Priority = 0.0f,
-		int32 UserData = 0,
-		bool bAddToPool = true);
+		const FOnAsyncWidgetLoadedDynamic& OnLoadCompleted,
+		float Priority = 0.0f);
 
 	/**
-	 * Request a widget asynchronously (Blueprint friendly version)
-	 * @param WidgetClass The soft class reference to load
-	 * @param Requester The object requesting the widget
-	 * @param OnLoadCompleted Blueprint delegate called when loading completes
-	 * @param Priority Loading priority (higher values are loaded first)
-	 * @param UserData Additional context data for the request
-	 * @return Request ID for tracking or cancellation
+	 * Set the creation context for widgets
+	 * 
+	 * @param World The world to use for widget creation
+	 * @param PlayerController The player controller for widget creation
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Async Widget Loader")
-	int32 RequestWidget(
-		TSoftClassPtr<UUserWidget> WidgetClass,
-		UObject* Requester,
-		FOnAsyncWidgetLoadedDynamic OnLoadCompleted,
-		float Priority = 0.0f,
-		int32 UserData = 0);
+	void SetWidgetCreationContext(UWorld* World, APlayerController* PlayerController);
 
 	/**
-	 * Create a placeholder widget to show during loading
-	 * @param WidgetClass The widget class being loaded
-	 * @param Requester The object requesting the widget
-	 * @param Context Additional context for the placeholder
-	 * @return A placeholder widget, or nullptr if none available
+	 * Release all widgets in all pools
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Async Widget Loader")
-	UUserWidget* CreatePlaceholderWidget(
-		TSoftClassPtr<UUserWidget> WidgetClass,
-		UObject* Requester,
-		UObject* Context = nullptr);
+	void ResetWidgetPools();
 
 	/**
-	 * Set the default placeholder widget class to use when none is specified
-	 * @param PlaceholderClass The placeholder widget class
+	 * Get a pooled widget for the specified class
+	 * Creates a new one if none available in pool
+	 * 
+	 * @param LoadedWidgetClass The class of widget to get
+	 * @return A widget instance from the pool or newly created
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Async Widget Loader")
-	void SetDefaultPlaceholderClass(TSoftClassPtr<UUserWidget> PlaceholderClass);
+	UUserWidget* GetOrCreatePooledWidget(const TSubclassOf<UUserWidget>& LoadedWidgetClass);
+
+	UFUNCTION()
+	void OnPreallocatedWidgetLoaded(int32 RequestId, UUserWidget* LoadedWidget);
+
+	UFUNCTION(BlueprintCallable, Category = "Async Widget Loader")
+	void PreallocateWidgets(const TSoftClassPtr<UUserWidget>& WidgetClass, int32 NumToPreallocate, UObject* Requester, const float Priority);
+
+	UFUNCTION(BlueprintCallable, Category = "Async Widget Loader")
+	void ReleaseWidgetToPool(UUserWidget* Widget);
 
 	/**
 	 * Cancel an in-progress widget loading request
+	 * 
 	 * @param RequestId The request ID to cancel
 	 * @return True if the request was cancelled
 	 */
@@ -94,54 +94,12 @@ public:
 
 	/**
 	 * Get the status of an async widget request
+	 * 
 	 * @param RequestId The request ID to check
 	 * @return The current status of the request
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Async Widget Loader")
 	EAsyncWidgetLoadStatus GetRequestStatus(int32 RequestId) const;
-
-	/**
-	 * Create a handle for a widget
-	 * @param Widget The widget to create a handle for
-	 * @param ClassPath The class path for the widget
-	 * @return A new handle object
-	 */
-	UFUNCTION(BlueprintCallable, Category = "Async Widget Loader")
-	UAsyncWidgetHandle* CreateWidgetHandle(UUserWidget* Widget, FSoftObjectPath ClassPath);
-
-	/**
-	 * Set the world and player controller for widget creation
-	 * @param World The world to use
-	 * @param PlayerController The player controller to use
-	 */
-	UFUNCTION(BlueprintCallable, Category = "Async Widget Loader")
-	void SetCreationContext(UWorld* World, APlayerController* PlayerController);
-
-	/**
-	 * Release a widget back to the pool
-	 * @param Widget The widget to release
-	 * @param ClassPath The class path for the widget
-	 * @param bImmediate Whether to release immediately or after a delay
-	 */
-	void ReleaseWidget(UUserWidget* Widget, const FSoftObjectPath& ClassPath, bool bImmediate = true);
-
-	/**
-	 * Release all widgets in the pool
-	 */
-	UFUNCTION(BlueprintCallable, Category = "Async Widget Loader")
-	void ReleaseAllWidgets();
-
-	/**
-	 * Get the current number of active requests
-	 */
-	UFUNCTION(BlueprintCallable, Category = "Async Widget Loader")
-	int32 GetActiveRequestCount() const { return ActiveRequests.Num(); }
-
-	/**
-	 * Get a pooled widget for the specified class
-	 * This will either return an inactive widget from the pool or create a new one
-	 */
-	UUserWidget* GetPooledWidget(const TSubclassOf<UUserWidget>& WidgetClass, const FSoftObjectPath& ClassPath);
 
 protected:
 	/** StreamableManager for handling async loading */
@@ -149,15 +107,11 @@ protected:
 
 	/** Map of class paths to pools */
 	UPROPERTY()
-	TMap<FString, FUserWidgetPool> ClassToPoolMap;
+	TMap<FString, FUserWidgetPool> ClassPathToPoolMap;
 
 	/** Map of request IDs to active requests */
 	UPROPERTY()
 	TMap<int32, FAsyncWidgetRequest> ActiveRequests;
-
-	/** Delayed widget releases */
-	UPROPERTY()
-	TArray<FDelayedWidgetRelease> DelayedReleases;
 
 	/** Default world for widget creation */
 	UPROPERTY()
@@ -167,31 +121,21 @@ protected:
 	UPROPERTY()
 	TWeakObjectPtr<APlayerController> DefaultPlayerController;
 
-	/** Default placeholder widget class */
-	UPROPERTY()
-	TSoftClassPtr<UUserWidget> DefaultPlaceholderClass;
-
 	/** Next request ID */
+	UPROPERTY()
 	int32 NextRequestId;
-
-	/** Delay time for releasing widgets (seconds) */
-	float WidgetReleaseDelay;
-
-	/** Process the completion of a widget load */
+	
+	/** Process when a widget class finishes loading */
 	void OnWidgetClassLoaded(int32 RequestId);
 
 	/** Remove completed or cancelled requests */
 	void CleanupRequests();
 
-	/** Process delayed widget releases */
-	void ProcessDelayedReleases();
+	UPROPERTY()
+	float CleanupInterval = 5.0f;
+
+	FTimerHandle CleanupTimerHandle;
 
 	/** Get a pool for the specified class path */
-	FUserWidgetPool& GetOrCreatePool(const FSoftObjectPath& ClassPath);
-
-	/** Tick function */
-	bool Tick(float DeltaTime);
-
-	/** Tick delegate handle */
-	FTSTicker::FDelegateHandle TickerHandle;
+	FUserWidgetPool& GetOrCreatePool(const TSoftClassPtr<UUserWidget>& ClassPath);
 };
