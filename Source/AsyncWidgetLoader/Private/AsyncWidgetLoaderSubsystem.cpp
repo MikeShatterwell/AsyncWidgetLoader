@@ -72,8 +72,8 @@ int32 UAsyncWidgetLoaderSubsystem::RequestWidgetAsync(
 	
 	const int32 CurrentRequestId = NextRequestId++;
 
-	/*// Check if the class is already loaded
-	if (UClass* LoadedClass = WidgetClass.Get())
+	// Check if the class is already loaded
+	/*if (UClass* LoadedClass = WidgetClass.Get())
 	{
 		// Create the widget immediately
 		if (UUserWidget* Widget = GetOrCreatePooledWidget(LoadedClass))
@@ -113,7 +113,10 @@ int32 UAsyncWidgetLoaderSubsystem::RequestWidgetAsync(
 	// Start async loading
 	const TSharedPtr<FStreamableHandle> Handle = StreamableManager.RequestAsyncLoad(
 		Request.ClassPath,
-		[this, RequestId = CurrentRequestId]() { OnWidgetClassLoaded(RequestId); },
+		[this, RequestId = CurrentRequestId]()
+		{
+			OnWidgetClassLoaded(RequestId);
+		},
 		Priority);
 
 	Request.StreamableHandle = Handle;
@@ -327,8 +330,7 @@ void UAsyncWidgetLoaderSubsystem::OnWidgetClassLoaded(const int32 RequestId)
 	// Notify the requester if it implements the interface
 	if (Request->Requester->Implements<UAsyncWidgetRequestHandler>())
 	{
-		IAsyncWidgetRequestHandler::Execute_OnAsyncWidgetLoaded(
-			Request->Requester.Get(), RequestId, Widget);
+		IAsyncWidgetRequestHandler::Execute_OnAsyncWidgetLoaded(Request->Requester.Get(), RequestId, Widget);
 	}
 
 	// Remove from active requests
