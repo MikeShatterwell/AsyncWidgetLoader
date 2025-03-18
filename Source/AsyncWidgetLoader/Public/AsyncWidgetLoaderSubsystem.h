@@ -34,20 +34,32 @@ public:
 	//~ End USubsystem Interface
 	
 	/**
-	 * Load a widget class asynchronously and create an instance
+	 * Possibly load a widget class asynchronously and create a pooled instance (or return an existing one)
 	 * 
 	 * @param WidgetClass The widget class to load
 	 * @param Requester The object requesting the widget, will receive callbacks
+	 * @param OutRequestId Request ID that can be used to cancel or track the request
 	 * @param OnLoadCompleted Callback when loading completes
 	 * @param Priority Loading priority (higher values are loaded first)
-	 * @return Request ID that can be used to cancel or track the request
+	 * @return A loaded widget instance (if set) or nullptr if async loading is in progress (or failed)
+	 * (use the request ID to track, widget will be passed to the callback or IAsyncWidgetRequestHandler interface)
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Async Widget Loader")
-	int32 RequestWidgetAsync(
+	UUserWidget* RequestWidget_Async(
 		const TSoftClassPtr<UUserWidget>& WidgetClass,
 		UObject* Requester,
+		int32& OutRequestId,
 		const FOnAsyncWidgetLoadedDynamic& OnLoadCompleted,
 		float Priority = 0.0f);
+	
+	/**
+	 * Load a widget class and create a pooled instance (or return an existing one)
+	 * 
+	 * @param WidgetClass The widget class to load
+	 * @return A loaded widget instance
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Async Widget Loader")
+	UUserWidget* RequestWidget(const TSubclassOf<UUserWidget>& WidgetClass);
 
 	/**
 	 * Set the creation context for widgets
@@ -73,12 +85,6 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Async Widget Loader")
 	UUserWidget* GetOrCreatePooledWidget(const TSubclassOf<UUserWidget>& LoadedWidgetClass);
-
-	UFUNCTION()
-	void OnPreallocatedWidgetLoaded(int32 RequestId, UUserWidget* LoadedWidget);
-
-	UFUNCTION(BlueprintCallable, Category = "Async Widget Loader")
-	void PreallocateWidgets(const TSoftClassPtr<UUserWidget>& WidgetClass, int32 NumToPreallocate, UObject* Requester, const float Priority);
 
 	UFUNCTION(BlueprintCallable, Category = "Async Widget Loader")
 	void ReleaseWidgetToPool(UUserWidget* Widget);

@@ -52,44 +52,33 @@ bool UAsyncWidgetLoaderSubsystem::ShouldCreateSubsystem(UObject* Outer) const
 	return Cast<UGameInstance>(Outer) != nullptr;
 }
 
-int32 UAsyncWidgetLoaderSubsystem::RequestWidgetAsync(
+UUserWidget* UAsyncWidgetLoaderSubsystem::RequestWidget_Async(
 	const TSoftClassPtr<UUserWidget>& WidgetClass,
 	UObject* Requester,
+	int32& OutRequestId,
 	const FOnAsyncWidgetLoadedDynamic& OnLoadCompleted,
 	const float Priority)
 {
 	if (!Requester)
 	{
 		UE_LOG(LogAsyncWidgetLoader, Error, TEXT("%hs: Invalid requester"), __FUNCTION__);
-		return INDEX_NONE;
+		return nullptr;
 	}
 
 	if (!WidgetClass.IsValid())
 	{
 		UE_LOG(LogAsyncWidgetLoader, Error, TEXT("%hs: Invalid widget class"), __FUNCTION__);
-		return INDEX_NONE;
+		return nullptr;
 	}
 	
-	const int32 CurrentRequestId = NextRequestId++;
+	OutRequestId = NextRequestId++;
 
 	// Check if the class is already loaded
-	/*if (UClass* LoadedClass = WidgetClass.Get())
+	if (UClass* LoadedClass = WidgetClass.Get())
 	{
 		// Create the widget immediately
-		if (UUserWidget* Widget = GetOrCreatePooledWidget(LoadedClass))
-		{
-			// Call the completion callback right away
-			OnLoadCompleted.ExecuteIfBound(CurrentRequestId, Widget);
-
-			// Notify via interface if implemented
-			if (Requester && Requester->Implements<UAsyncWidgetRequestHandler>())
-			{
-				IAsyncWidgetRequestHandler::Execute_OnAsyncWidgetLoaded(Requester, CurrentRequestId, Widget);
-			}
-
-			return CurrentRequestId;
-		}
-	}*/
+		return GetOrCreatePooledWidget(LoadedClass);
+	}
 
 	// Widget class not already loaded, start async loading
 
@@ -107,13 +96,13 @@ int32 UAsyncWidgetLoaderSubsystem::RequestWidgetAsync(
 	// Notify via interface if implemented
 	if (Requester->Implements<UAsyncWidgetRequestHandler>())
 	{
-		IAsyncWidgetRequestHandler::Execute_OnAsyncWidgetRequested(Requester, CurrentRequestId, WidgetClass);
+		IAsyncWidgetRequestHandler::Execute_OnAsyncWidgetRequested(Requester, OutRequestId, WidgetClass);
 	}
 
 	// Start async loading
 	const TSharedPtr<FStreamableHandle> Handle = StreamableManager.RequestAsyncLoad(
 		Request.ClassPath,
-		[this, RequestId = CurrentRequestId]()
+		[this, RequestId = OutRequestId]()
 		{
 			OnWidgetClassLoaded(RequestId);
 		},
@@ -121,7 +110,12 @@ int32 UAsyncWidgetLoaderSubsystem::RequestWidgetAsync(
 
 	Request.StreamableHandle = Handle;
 
-	return CurrentRequestId;
+	return nullptr;
+}
+
+UUserWidget* UAsyncWidgetLoaderSubsystem::RequestWidget(const TSubclassOf<UUserWidget>& WidgetClass)
+{
+	return GetOrCreatePooledWidget(WidgetClass);
 }
 
 bool UAsyncWidgetLoaderSubsystem::CancelRequest(const int32 RequestId)
@@ -210,38 +204,6 @@ UUserWidget* UAsyncWidgetLoaderSubsystem::GetOrCreatePooledWidget(const TSubclas
 
 	// Get a widget from the pool
 	return GetOrCreatePool(LoadedWidgetClass.Get()).GetOrCreateInstance(LoadedWidgetClass);
-}
-
-void UAsyncWidgetLoaderSubsystem::OnPreallocatedWidgetLoaded(int32 RequestId, UUserWidget* LoadedWidget)
-{
-	if (LoadedWidget)
-	{
-		ReleaseWidgetToPool(LoadedWidget);
-	}
-}
-
-void UAsyncWidgetLoaderSubsystem::PreallocateWidgets(const TSoftClassPtr<UUserWidget>& WidgetClass,
-	const int32 NumToPreallocate, UObject* Requester, const float Priority)
-{
-	if (!WidgetClass.IsValid())
-	{
-		UE_LOG(LogAsyncWidgetLoader, Error, TEXT("%hs: Invalid widget class"), __FUNCTION__);
-		return;
-	}
-
-	if (NumToPreallocate <= 0)
-	{
-		UE_LOG(LogAsyncWidgetLoader, Warning, TEXT("PreallocateWidgets: NumToPreallocate must be > 0"));
-		return;
-	}
-
-	FOnAsyncWidgetLoadedDynamic OnLoadCompleted;
-	OnLoadCompleted.BindDynamic(this, &ThisClass::OnPreallocatedWidgetLoaded);
-
-	for (int32 i = 0; i < NumToPreallocate; ++i)
-	{
-		RequestWidgetAsync(WidgetClass, Requester, FOnAsyncWidgetLoadedDynamic(), Priority);
-	}
 }
 
 void UAsyncWidgetLoaderSubsystem::ReleaseWidgetToPool(UUserWidget* Widget)
